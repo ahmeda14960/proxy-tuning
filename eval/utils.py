@@ -11,6 +11,10 @@ from transformers import (
 )
 
 
+ 
+
+from modeling.dexperts import DExpertsLlama
+
 def ensure_dir(d):
     if not os.path.exists(d):
         os.makedirs(d, exist_ok=True)
@@ -186,19 +190,28 @@ def load_dexperts_model_and_tokenizer(
     load_in_8bit: bool = False,
     use_fast_tokenizer: bool = True,
     padding_side: str = "left",
+    use_bf16: bool = True,  # New parameter to enable bf16
+    tokenizer_name_or_path: str = 'meta-llama/Meta-Llama-3-8B',
 ):
-    from transformers import AutoTokenizer
-    from modeling.dexperts import DExpertsLlama
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    # Determine the appropriate dtype
+    if use_bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        dtype = torch.bfloat16
+        print("Using BFloat16 precision.")
+    else:
+        dtype = torch.float16
+        print("Using Float16 precision.")
 
     model_kwargs = {
         'device_map': device_map,
         'offload_folder': 'offload_folder',
-        'torch_dtype': torch.float16,
+        'torch_dtype': dtype,
         'offload_state_dict': True,
         'load_in_8bit': load_in_8bit,
     }
-
-    tokenizer = AutoTokenizer.from_pretrained(base_model_name_or_path, use_fast_tokenizer=use_fast_tokenizer)
+    
+    
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path, use_fast_tokenizer=use_fast_tokenizer)
     tokenizer = add_pad_token(tokenizer, padding_side)
     if not antiexpert_model_name_or_path:
         antiexpert_model_name_or_path = 'meta-llama/Llama-2-7b-hf'
@@ -215,6 +228,8 @@ def load_dexperts_model_and_tokenizer(
     )
 
     return model, tokenizer
+
+# Make sure to include or import the add_pad_token function here
 
 
 def dynamic_import_function(function_path):

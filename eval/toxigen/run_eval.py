@@ -85,6 +85,7 @@ def main(args):
         model, tokenizer = load_dexperts_model_and_tokenizer(
             base_model_name_or_path=args.base_model_name_or_path,
             expert_model_name_or_path=args.expert_model_name_or_path,
+            antiexpert_model_name_or_path=args.antiexpert_model_name_or_path,
             system_prompt=args.system_prompt,
             alpha=args.alpha,
             load_in_8bit=args.load_in_8bit,
@@ -196,6 +197,11 @@ if __name__ == "__main__":
         "--expert_model_name_or_path",
         type=str,
         default='meta-llama/Llama-2-7b-chat-hf',
+    )
+    parser.add_argument(
+        "--antiexpert_model_name_or_path",
+        type=str,
+        default=None,
     )
     parser.add_argument(
         "--system_prompt",
