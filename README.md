@@ -7,6 +7,10 @@ This repository contains code for the paper [Tuning Language Models by Proxy (20
 You can download the evaluation data at [zip file of our evaluation data](https://github.com/alisawuffles/proxy-tuning/blob/main/data.zip). Our evaluation setup is largely borrowed from [Tülu 2](https://arxiv.org/abs/2311.10702) (codebase at https://github.com/allenai/open-instruct), with slight modifications. To see examples of how evaluation scripts are run, see `scripts/eval`.
 
 
+run server
+```bash
+CUDA_VISIBLE_DEVICES=0 python simple_server.py
+```
 ## Citation
 ```
 @misc{liu-etal-2024-tuning,

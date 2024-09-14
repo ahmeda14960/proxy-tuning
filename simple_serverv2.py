@@ -58,18 +58,15 @@ def completions():
     if logprobs is not None:
         logprobs_output = {
             "token_logprobs": [],
-            "tokens": [],
             "top_logprobs": []
         }
         for i, token_scores in enumerate(outputs.scores):
             probs = torch.softmax(token_scores[0], dim=-1)
             top_probs, top_indices = probs.topk(logprobs)
             token_id = generated_ids[input_ids.shape[1] + i].item()
-            token = tokenizer.decode(token_id)
             token_logprob = torch.log(probs[token_id]).item()
             
             logprobs_output["token_logprobs"].append(token_logprob)
-            logprobs_output["tokens"].append(token)
             logprobs_output["top_logprobs"].append({
                 tokenizer.decode(idx.item()): torch.log(prob).item() 
                 for idx, prob in zip(top_indices, top_probs)
@@ -83,7 +80,7 @@ def completions():
         "choices": [{
             "text": (prompt + generated_text) if echo else generated_text,
             "index": 0,
-            "logprobs": logprobs_output if logprobs_output else None,
+            "logprobs": logprobs_output,
             "finish_reason": "length"
         }],
         "usage": {
