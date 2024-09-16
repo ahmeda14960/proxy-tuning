@@ -9,12 +9,17 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
+from torch.nn import functional as F
 
-from eval.utils import load_lm_and_tokenizer, load_dexperts_model_and_tokenizer
+from eval.utils import load_lm_and_tokenizer
 
 def ensure_dir(d):
     if not os.path.exists(d):
         os.makedirs(d, exist_ok=True)
+
+import torch
+import torch.nn.functional as F
+from tqdm import tqdm
 
 @torch.inference_mode()
 def generate_completions(
@@ -22,7 +27,6 @@ def generate_completions(
     tokenizer,
     prompts,
     batch_size=1,
-    stop_id_sequences=None,
     disable_tqdm=False,
     temperature=1.0,
     top_p=1.0,
@@ -31,13 +35,14 @@ def generate_completions(
     **generation_kwargs
 ):
     all_logits = []
+    all_attention_masks = []
     if not disable_tqdm:
         progress = tqdm(total=len(prompts), desc="Generating Completions")
 
     for i in range(0, len(prompts), batch_size):
         batch_prompts = prompts[i:i+batch_size]
         tokenized_prompts = tokenizer(
-            batch_prompts, padding="longest", return_tensors="pt", add_special_tokens=True
+            batch_prompts, padding=True, truncation=True, return_tensors="pt", add_special_tokens=True
         )
         batch_input_ids = tokenized_prompts['input_ids'].to(model.device)
         attention_mask = tokenized_prompts['attention_mask'].to(model.device)
@@ -49,7 +54,10 @@ def generate_completions(
         else:  # dexperts mode
             raise NotImplementedError("DExperts mode is not implemented in this version.")
 
-        all_logits.append(batch_logits.detach().cpu())
+        # Store logits and attention masks for each item in the batch separately
+        for j in range(batch_logits.size(0)):
+            all_logits.append(batch_logits[j, :attention_mask[j].sum(), :].detach().cpu())
+            all_attention_masks.append(attention_mask[j, :attention_mask[j].sum()].cpu())
 
         if not disable_tqdm:
             progress.update(len(batch_prompts))
@@ -57,10 +65,10 @@ def generate_completions(
         # Clear CUDA cache to free up memory
         torch.cuda.empty_cache()
 
-    all_logits = torch.cat(all_logits, dim=0)
-    
+    # Process logits
     if sample:
-        generations = tokenizer.batch_decode(torch.argmax(all_logits, dim=-1), skip_special_tokens=True)
+        sampled_tokens = [torch.argmax(logits, dim=-1) for logits in all_logits]
+        generations = tokenizer.batch_decode(sampled_tokens, skip_special_tokens=True)
     else:
         generations = None
 
@@ -73,8 +81,7 @@ def custom_evaluate(tokenizer, eval_dataset, eval_mode, batch_size=16, logits=No
     
     correct = 0
     total = 0
-
-    print(f"Logits shape: {logits.shape}")
+    #print(f"Logits shape: {logits.shape}")
 
     for batch_idx, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
         questions = batch['question']
@@ -96,16 +103,23 @@ def custom_evaluate(tokenizer, eval_dataset, eval_mode, batch_size=16, logits=No
                 
                 # Extract logits for this question
                 question_logits = logits[batch_idx * batch_size + question_idx]
-                if debug:
-                    print(f"Question logits shape: {question_logits.shape}")
                 
                 # Calculate scores for each choice
                 choice_scores = []
                 for choice in question_choices:
-                    # Tokenize the choice
+                    # Tokenize the question and choice
+                    question_tokens = tokenizer.encode(question, add_special_tokens=False)
                     choice_tokens = tokenizer.encode(choice, add_special_tokens=False)
-                    # Sum the logits for the choice tokens
-                    choice_score = question_logits[:, choice_tokens].sum().item()
+                    
+                    # Get the logits for the position right after the question
+                    choice_position = len(question_tokens)
+                    choice_logits = question_logits[choice_position:choice_position + len(choice_tokens)]
+                    
+                    # Calculate log probabilities
+                    log_probs = torch.log_softmax(choice_logits, dim=-1)
+                    
+                    # Sum log probabilities for the choice tokens
+                    choice_score = sum(log_probs[i, token].item() for i, token in enumerate(choice_tokens))
                     choice_scores.append(choice_score)
                 
                 if debug:
@@ -119,8 +133,8 @@ def custom_evaluate(tokenizer, eval_dataset, eval_mode, batch_size=16, logits=No
                     print(f"Predicted answer text: {question_choices[predicted_index]}")
                     print(f"Correct: {'Yes' if predicted_index == correct_answers[question_idx] else 'No'}")
 
-        correct += sum(pred == true for pred, true in zip(predicted_indices, correct_answers))
-        total += len(correct_answers)
+            correct += sum(pred == true for pred, true in zip(predicted_indices, correct_answers))
+            total += len(correct_answers)
 
         print(f"Batch accuracy: {correct}/{total}")
 
